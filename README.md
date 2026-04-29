@@ -69,6 +69,41 @@ npm run dev
 npm run build
 ```
 
+## GitHub Actions
+
+Le depot inclut un workflow GitHub Actions dans `.github/workflows/build.yml`.
+
+Il execute automatiquement :
+
+- `npm ci`
+- `npm run build`
+
+sur chaque `push` vers `main` et sur chaque `pull request` vers `main`.
+
+## Deploiement Vercel
+
+Le fichier `vercel.json` est deja configure pour une application React/Vite avec routage SPA.
+
+### Variables a configurer dans Vercel
+
+Ajoutez dans le projet Vercel :
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+### Etapes de deploiement
+
+1. Importer le depot GitHub dans Vercel.
+2. Laisser Vercel detecter le projet Vite.
+3. Renseigner les variables d'environnement.
+4. Lancer le premier deploiement.
+
+Le build Vercel utilisera :
+
+- `npm install`
+- `npm run build`
+- le dossier `dist` comme sortie
+
 ## Structure rapide
 
 ```text
