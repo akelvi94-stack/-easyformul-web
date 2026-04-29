@@ -15,6 +15,12 @@ export function SetupPage() {
             <p>Copiez le fichier `.env.example` vers `.env` puis renseignez :</p>
             <code>VITE_SUPABASE_URL</code>
             <code>VITE_SUPABASE_ANON_KEY</code>
+            <code>VITE_BOOTSTRAP_ADMIN_EMAIL</code>
+            <p>
+              Les variantes <code>NEXT_PUBLIC_SUPABASE_URL</code> et{" "}
+              <code>NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code> sont aussi
+              acceptees.
+            </p>
           </article>
 
           <article>

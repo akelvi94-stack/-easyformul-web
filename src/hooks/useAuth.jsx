@@ -2,6 +2,13 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 const AuthContext = createContext(null);
+const bootstrapAdminEmail = (
+  import.meta.env.VITE_BOOTSTRAP_ADMIN_EMAIL ||
+  import.meta.env.NEXT_PUBLIC_BOOTSTRAP_ADMIN_EMAIL ||
+  ""
+)
+  .trim()
+  .toLowerCase();
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
@@ -22,7 +29,7 @@ export function AuthProvider({ children }) {
 
       setSession(currentSession ?? null);
       if (currentSession?.user) {
-        await loadProfile(currentSession.user.id, mounted);
+        await loadProfile(currentSession.user.id, mounted, currentSession);
       } else {
         setProfile(null);
       }
@@ -36,7 +43,7 @@ export function AuthProvider({ children }) {
     } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
       setSession(nextSession ?? null);
       if (nextSession?.user) {
-        await loadProfile(nextSession.user.id, true);
+        await loadProfile(nextSession.user.id, true, nextSession);
       } else {
         setProfile(null);
       }
@@ -49,12 +56,48 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  async function loadProfile(userId, mounted = true) {
-    const { data } = await supabase
+  async function loadProfile(userId, mounted = true, currentSession = session) {
+    let data = null;
+
+    const profileResponse = await supabase
       .from("profiles")
       .select("id, full_name, role, locale, is_active")
       .eq("id", userId)
       .maybeSingle();
+
+    data = profileResponse.data ?? null;
+
+    const sessionUser = currentSession?.user;
+    const sessionEmail = sessionUser?.email?.trim().toLowerCase() || "";
+    const shouldBootstrapAdmin =
+      bootstrapAdminEmail &&
+      sessionEmail === bootstrapAdminEmail &&
+      data?.role !== "admin";
+
+    if (shouldBootstrapAdmin) {
+      const fullName =
+        data?.full_name ||
+        sessionUser?.user_metadata?.full_name ||
+        sessionEmail.split("@")[0] ||
+        "Administrateur";
+
+      const { data: refreshedProfile } = await supabase
+        .from("profiles")
+        .upsert(
+          {
+            id: userId,
+            full_name: fullName,
+            role: "admin",
+            locale: data?.locale || "fr",
+            is_active: data?.is_active ?? true,
+          },
+          { onConflict: "id" },
+        )
+        .select("id, full_name, role, locale, is_active")
+        .maybeSingle();
+
+      data = refreshedProfile ?? data;
+    }
 
     if (mounted) {
       setProfile(data ?? null);

@@ -24,7 +24,6 @@ Version web de l'application EasyFormul construite avec **React + Vite** et un b
 - React Router
 - React Query
 - Supabase JS
-- `xlsx` pour l'import/export Excel
 - `read-excel-file` et `write-excel-file` pour l'import/export `.xlsx`
 - `javascript-lp-solver` pour la formulation least-cost
 
@@ -43,7 +42,20 @@ Copier `.env.example` en `.env` puis renseigner :
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-public-anon-key
+VITE_BOOTSTRAP_ADMIN_EMAIL=owner@example.com
 ```
+
+Le projet accepte aussi les noms de variables suivants si vous preferez garder
+un format compatible Next.js :
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-public-publishable-key
+NEXT_PUBLIC_BOOTSTRAP_ADMIN_EMAIL=owner@example.com
+```
+
+`VITE_BOOTSTRAP_ADMIN_EMAIL` permet de promouvoir automatiquement ce compte en
+`admin` lors de sa premiere connexion reussie.
 
 ### 3. Creer la base
 
@@ -91,6 +103,11 @@ Ajoutez dans le projet Vercel :
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+
+Ou, si vous utilisez deja cette convention :
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 
 ### Etapes de deploiement
 
