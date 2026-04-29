@@ -4,7 +4,7 @@ import { LockKeyhole, Mail, Wheat } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 
 export function LoginPage() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, resendConfirmation } = useAuth();
   const [mode, setMode] = useState("signin");
   const [form, setForm] = useState({
     fullName: "",
@@ -12,6 +12,13 @@ export function LoginPage() {
     password: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [confirmationEmail, setConfirmationEmail] = useState("");
+
+  function isEmailNotConfirmed(error) {
+    const value = `${error?.code || ""} ${error?.message || ""}`.toLowerCase();
+    return value.includes("email not confirmed") || value.includes("email_not_confirmed");
+  }
 
   function updateField(event) {
     setForm((current) => ({
@@ -23,6 +30,7 @@ export function LoginPage() {
   async function handleSubmit(event) {
     event.preventDefault();
     setSubmitting(true);
+    setConfirmationEmail("");
 
     try {
       if (mode === "signin") {
@@ -47,12 +55,50 @@ export function LoginPage() {
         if (error) {
           throw error;
         }
+        setConfirmationEmail(form.email.trim());
         toast.success("Compte cree. Verifiez votre boite mail si la confirmation est active.");
       }
     } catch (error) {
-      toast.error(error.message || "Operation impossible.");
+      if (isEmailNotConfirmed(error)) {
+        setConfirmationEmail(form.email.trim());
+        toast.error("Email non confirme. Verifiez votre boite mail ou renvoyez le lien.");
+      } else {
+        toast.error(error.message || "Operation impossible.");
+      }
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleResendConfirmation() {
+    if (!confirmationEmail) {
+      return;
+    }
+
+    setResending(true);
+
+    try {
+      const { error } = await resendConfirmation(confirmationEmail);
+      if (error) {
+        throw error;
+      }
+      toast.success("Email de confirmation renvoye.");
+    } catch (error) {
+      const message = `${error?.message || ""}`.toLowerCase();
+      if (message.includes("rate limit")) {
+        toast.error("Trop de demandes pour le moment. Reessayez dans quelques minutes.");
+      } else {
+        toast.error(error.message || "Impossible de renvoyer l'email de confirmation.");
+      }
+    } finally {
+      setResending(false);
+    }
+  }
+
+  function handleModeChange(nextMode) {
+    setMode(nextMode);
+    if (nextMode === "signup") {
+      setConfirmationEmail(form.email.trim());
     }
   }
 
@@ -88,14 +134,14 @@ export function LoginPage() {
           <button
             type="button"
             className={mode === "signin" ? "is-active" : ""}
-            onClick={() => setMode("signin")}
+            onClick={() => handleModeChange("signin")}
           >
             Connexion
           </button>
           <button
             type="button"
             className={mode === "signup" ? "is-active" : ""}
-            onClick={() => setMode("signup")}
+            onClick={() => handleModeChange("signup")}
           >
             Creation de compte
           </button>
@@ -151,6 +197,26 @@ export function LoginPage() {
                 ? "Se connecter"
                 : "Creer mon compte"}
           </button>
+
+          {confirmationEmail ? (
+            <div className="auth-notice auth-notice--warning">
+              <strong>Confirmation requise</strong>
+              <p>
+                Le compte <strong>{confirmationEmail}</strong> doit confirmer son
+                adresse email avant la connexion.
+              </p>
+              <div className="auth-notice__actions">
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={handleResendConfirmation}
+                  disabled={resending}
+                >
+                  {resending ? "Envoi..." : "Renvoyer l'email"}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </form>
       </section>
     </div>

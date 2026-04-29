@@ -111,6 +111,11 @@ export function AuthProvider({ children }) {
       loading,
       signIn: (payload) => supabase.auth.signInWithPassword(payload),
       signUp: (payload) => supabase.auth.signUp(payload),
+      resendConfirmation: (email) =>
+        supabase.auth.resend({
+          type: "signup",
+          email,
+        }),
       signOut: () => supabase.auth.signOut(),
       refreshProfile: async () => {
         if (session?.user?.id) {
