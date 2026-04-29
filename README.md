@@ -25,6 +25,7 @@ Version web de l'application EasyFormul construite avec **React + Vite** et un b
 - React Query
 - Supabase JS
 - `xlsx` pour l'import/export Excel
+- `read-excel-file` et `write-excel-file` pour l'import/export `.xlsx`
 - `javascript-lp-solver` pour la formulation least-cost
 
 ## Demarrage
@@ -124,3 +125,4 @@ easyformul-web/
 - La session utilisateur est persistante dans le navigateur via Supabase Auth.
 - Le solveur web reproduit la logique de formulation sur une base de `100 kg`, puis projette le resultat sur la base choisie.
 - L'import Excel travaille en ajout / mise a jour et ne supprime pas automatiquement les donnees existantes.
+- Le module web importe et exporte des fichiers `.xlsx`.

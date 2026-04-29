@@ -1,35 +1,47 @@
-import * as XLSX from "xlsx";
+import readExcelFile from "read-excel-file/browser";
+import writeXlsxFile from "write-excel-file/browser";
 import { supabase } from "../lib/supabase";
 import { IMPORT_HEADERS, IMPORT_SHEETS } from "../lib/constants";
 import { normalizeText, parseNumeric } from "../lib/utils";
 
-function sheetRows(workbook, name) {
-  const sheet = workbook.Sheets[name];
-  if (!sheet) {
+function headerCell(value) {
+  return {
+    value,
+    fontWeight: "bold",
+  };
+}
+
+function toSheetData(headers, rows) {
+  return [
+    headers.map((header) => headerCell(header)),
+    ...rows.map((row) => headers.map((header) => row[header] ?? "")),
+  ];
+}
+
+function toNamedRows(sheetData) {
+  if (!sheetData?.length) {
     return [];
   }
-  return XLSX.utils.sheet_to_json(sheet, {
-    defval: "",
-    raw: false,
-  });
+
+  const [headerRow, ...bodyRows] = sheetData;
+  const headers = headerRow.map((cell) => String(cell ?? "").trim());
+
+  return bodyRows
+    .map((row) => {
+      const object = {};
+      headers.forEach((header, index) => {
+        object[header] = row[index] ?? "";
+      });
+      return object;
+    })
+    .filter((row) =>
+      Object.values(row).some((value) => String(value ?? "").trim() !== ""),
+    );
 }
 
-function buildInstructionSheet() {
-  return XLSX.utils.aoa_to_sheet([
-    ["Mode d'utilisation"],
-    ["1. Ne changez pas le nom des feuilles ni l'ordre des colonnes."],
-    ["2. Les lignes vides sont ignorees."],
-    ["3. L'import ajoute ou met a jour le referentiel."],
-    ["4. Les categories sont creees automatiquement si elles n'existent pas."],
-    ["5. Utilisez les codes de nutriments de la feuille References."],
-  ]);
-}
-
-function rowsToSheet(headers, rows) {
-  return XLSX.utils.json_to_sheet(rows, {
-    header: headers,
-    skipHeader: false,
-  });
+async function loadWorkbookSheets(file) {
+  const sheets = await readExcelFile(file);
+  return new Map((sheets ?? []).map((sheet) => [sheet.sheet, sheet.data]));
 }
 
 async function fetchReferences() {
@@ -57,11 +69,8 @@ async function fetchReferences() {
 }
 
 export async function exportReferentialTemplate() {
-  const workbook = XLSX.utils.book_new();
   const references = await fetchReferences();
-  const ingredientPrices = await supabase
-    .from("ingredient_latest_prices")
-    .select("*");
+  const ingredientPrices = await supabase.from("ingredient_latest_prices").select("*");
   const needConstraints = await supabase
     .from("need_constraints")
     .select("need_id, nutrient_id, min_value, max_value, is_enabled");
@@ -80,110 +89,104 @@ export async function exportReferentialTemplate() {
     (ingredientPrices.data ?? []).map((row) => [row.ingredient_id, row.price_value]),
   );
 
-  XLSX.utils.book_append_sheet(
-    workbook,
-    buildInstructionSheet(),
-    IMPORT_SHEETS.instructions,
-  );
+  const sheets = [
+    {
+      sheet: IMPORT_SHEETS.instructions,
+      data: [
+        [headerCell("Mode d'utilisation")],
+        ["1. Ne changez pas le nom des feuilles ni l'ordre des colonnes."],
+        ["2. Les lignes vides sont ignorees."],
+        ["3. L'import ajoute ou met a jour le referentiel."],
+        ["4. Les categories sont creees automatiquement si elles n'existent pas."],
+        ["5. Utilisez les codes de nutriments de la feuille References."],
+      ],
+    },
+    {
+      sheet: IMPORT_SHEETS.animals,
+      data: toSheetData(
+        IMPORT_HEADERS.animals,
+        references.animals.map((animal) => ({
+          animal_nom: animal.name,
+          animal_race: animal.breed,
+          animal_stade: animal.stage,
+        })),
+      ),
+    },
+    {
+      sheet: IMPORT_SHEETS.needs,
+      data: toSheetData(
+        IMPORT_HEADERS.needs,
+        references.needs.map((need) => {
+          const animal = animalMap.get(need.animal_id);
+          return {
+            animal_nom: animal?.name ?? "",
+            animal_race: animal?.breed ?? "",
+            animal_stade: animal?.stage ?? "",
+            besoin_nom: need.name,
+          };
+        }),
+      ),
+    },
+    {
+      sheet: IMPORT_SHEETS.constraints,
+      data: toSheetData(
+        IMPORT_HEADERS.constraints,
+        (needConstraints.data ?? []).map((constraint) => {
+          const need = references.needs.find((item) => item.id === constraint.need_id);
+          const animal = animalMap.get(need?.animal_id);
+          const nutrient = nutrientMap.get(constraint.nutrient_id);
+          return {
+            animal_nom: animal?.name ?? "",
+            animal_race: animal?.breed ?? "",
+            animal_stade: animal?.stage ?? "",
+            besoin_nom: need?.name ?? "",
+            nutriment_code: nutrient?.code ?? "",
+            valeur_min: constraint.min_value,
+            valeur_max: constraint.max_value,
+          };
+        }),
+      ),
+    },
+    {
+      sheet: IMPORT_SHEETS.ingredients,
+      data: toSheetData(
+        IMPORT_HEADERS.ingredients,
+        references.ingredients.map((ingredient) => ({
+          ingredient_nom: ingredient.name,
+          categorie_nom: categoryMap.get(ingredient.category_id)?.name ?? "",
+          incorp_min: ingredient.inclusion_min,
+          incorp_max: ingredient.inclusion_max,
+          prix_fcfa_kg: latestPriceMap.get(ingredient.id) ?? "",
+          actif: ingredient.active ? "oui" : "non",
+        })),
+      ),
+    },
+    {
+      sheet: IMPORT_SHEETS.compositions,
+      data: toSheetData(
+        IMPORT_HEADERS.compositions,
+        (compositions.data ?? []).map((row) => ({
+          ingredient_nom:
+            references.ingredients.find((item) => item.id === row.ingredient_id)?.name ?? "",
+          nutriment_code: nutrientMap.get(row.nutrient_id)?.code ?? "",
+          valeur: row.value,
+        })),
+      ),
+    },
+    {
+      sheet: IMPORT_SHEETS.references,
+      data: [
+        [headerCell("nutriment_code"), headerCell("nutriment_nom")],
+        ...references.nutrients.map((nutrient) => [nutrient.code, nutrient.name]),
+      ],
+    },
+  ];
 
-  XLSX.utils.book_append_sheet(
-    workbook,
-    rowsToSheet(
-      IMPORT_HEADERS.animals,
-      references.animals.map((animal) => ({
-        animal_nom: animal.name,
-        animal_race: animal.breed,
-        animal_stade: animal.stage,
-      })),
-    ),
-    IMPORT_SHEETS.animals,
-  );
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    rowsToSheet(
-      IMPORT_HEADERS.needs,
-      references.needs.map((need) => {
-        const animal = animalMap.get(need.animal_id);
-        return {
-          animal_nom: animal?.name ?? "",
-          animal_race: animal?.breed ?? "",
-          animal_stade: animal?.stage ?? "",
-          besoin_nom: need.name,
-        };
-      }),
-    ),
-    IMPORT_SHEETS.needs,
-  );
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    rowsToSheet(
-      IMPORT_HEADERS.constraints,
-      (needConstraints.data ?? []).map((constraint) => {
-        const need = references.needs.find((item) => item.id === constraint.need_id);
-        const animal = animalMap.get(need?.animal_id);
-        const nutrient = nutrientMap.get(constraint.nutrient_id);
-        return {
-          animal_nom: animal?.name ?? "",
-          animal_race: animal?.breed ?? "",
-          animal_stade: animal?.stage ?? "",
-          besoin_nom: need?.name ?? "",
-          nutriment_code: nutrient?.code ?? "",
-          valeur_min: constraint.min_value,
-          valeur_max: constraint.max_value,
-        };
-      }),
-    ),
-    IMPORT_SHEETS.constraints,
-  );
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    rowsToSheet(
-      IMPORT_HEADERS.ingredients,
-      references.ingredients.map((ingredient) => ({
-        ingredient_nom: ingredient.name,
-        categorie_nom: categoryMap.get(ingredient.category_id)?.name ?? "",
-        incorp_min: ingredient.inclusion_min,
-        incorp_max: ingredient.inclusion_max,
-        prix_fcfa_kg: latestPriceMap.get(ingredient.id) ?? "",
-        actif: ingredient.active ? "oui" : "non",
-      })),
-    ),
-    IMPORT_SHEETS.ingredients,
-  );
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    rowsToSheet(
-      IMPORT_HEADERS.compositions,
-      (compositions.data ?? []).map((row) => ({
-        ingredient_nom: references.ingredients.find((item) => item.id === row.ingredient_id)?.name ?? "",
-        nutriment_code: nutrientMap.get(row.nutrient_id)?.code ?? "",
-        valeur: row.value,
-      })),
-    ),
-    IMPORT_SHEETS.compositions,
-  );
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.json_to_sheet(
-      references.nutrients.map((nutrient) => ({
-        nutriment_code: nutrient.code,
-        nutriment_nom: nutrient.name,
-      })),
-    ),
-    IMPORT_SHEETS.references,
-  );
-
-  XLSX.writeFileXLSX(workbook, "EasyFormul_Referentiel.xlsx");
+  await writeXlsxFile(sheets).toFile("EasyFormul_Referentiel.xlsx");
 }
 
 export async function importReferentialWorkbook(file) {
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array" });
+  const workbookSheets = await loadWorkbookSheets(file);
 
   const result = {
     animalsCreated: 0,
@@ -201,7 +204,10 @@ export async function importReferentialWorkbook(file) {
 
   const refs = await fetchReferences();
   const animalKeys = new Set(
-    refs.animals.map((row) => `${normalizeText(row.name)}|${normalizeText(row.breed)}|${normalizeText(row.stage)}`),
+    refs.animals.map(
+      (row) =>
+        `${normalizeText(row.name)}|${normalizeText(row.breed)}|${normalizeText(row.stage)}`,
+    ),
   );
   const needKeys = new Set(
     refs.needs.map((row) => `${row.animal_id}|${normalizeText(row.name)}`),
@@ -214,11 +220,11 @@ export async function importReferentialWorkbook(file) {
     nutrientMap.set(normalizeText(row.name), row);
   });
 
-  const animalsRows = sheetRows(workbook, IMPORT_SHEETS.animals);
-  const needsRows = sheetRows(workbook, IMPORT_SHEETS.needs);
-  const constraintRows = sheetRows(workbook, IMPORT_SHEETS.constraints);
-  const ingredientRows = sheetRows(workbook, IMPORT_SHEETS.ingredients);
-  const compositionRows = sheetRows(workbook, IMPORT_SHEETS.compositions);
+  const animalsRows = toNamedRows(workbookSheets.get(IMPORT_SHEETS.animals));
+  const needsRows = toNamedRows(workbookSheets.get(IMPORT_SHEETS.needs));
+  const constraintRows = toNamedRows(workbookSheets.get(IMPORT_SHEETS.constraints));
+  const ingredientRows = toNamedRows(workbookSheets.get(IMPORT_SHEETS.ingredients));
+  const compositionRows = toNamedRows(workbookSheets.get(IMPORT_SHEETS.compositions));
 
   const animalIdByKey = new Map(
     refs.animals.map((row) => [
@@ -234,7 +240,9 @@ export async function importReferentialWorkbook(file) {
   );
 
   for (const row of animalsRows) {
-    const key = `${normalizeText(row.animal_nom)}|${normalizeText(row.animal_race)}|${normalizeText(row.animal_stade)}`;
+    const key = `${normalizeText(row.animal_nom)}|${normalizeText(
+      row.animal_race,
+    )}|${normalizeText(row.animal_stade)}`;
     if (key === "||") continue;
 
     const existed = animalKeys.has(key);
@@ -265,7 +273,9 @@ export async function importReferentialWorkbook(file) {
   }
 
   for (const row of needsRows) {
-    const animalKey = `${normalizeText(row.animal_nom)}|${normalizeText(row.animal_race)}|${normalizeText(row.animal_stade)}`;
+    const animalKey = `${normalizeText(row.animal_nom)}|${normalizeText(
+      row.animal_race,
+    )}|${normalizeText(row.animal_stade)}`;
     const animalId = animalIdByKey.get(animalKey);
     if (!animalId) {
       result.errors.push(`Besoin ${row.besoin_nom}: animal introuvable.`);
@@ -367,32 +377,36 @@ export async function importReferentialWorkbook(file) {
   }
 
   for (const row of constraintRows) {
-    const animalKey = `${normalizeText(row.animal_nom)}|${normalizeText(row.animal_race)}|${normalizeText(row.animal_stade)}`;
+    const animalKey = `${normalizeText(row.animal_nom)}|${normalizeText(
+      row.animal_race,
+    )}|${normalizeText(row.animal_stade)}`;
     const animalId = animalIdByKey.get(animalKey);
     const needId = needIdByKey.get(`${animalId}|${normalizeText(row.besoin_nom)}`);
     const nutrient = nutrientMap.get(normalizeText(row.nutriment_code));
 
     if (!animalId || !needId || !nutrient) {
-      result.errors.push(`Contrainte ${row.besoin_nom}/${row.nutriment_code}: reference introuvable.`);
+      result.errors.push(
+        `Contrainte ${row.besoin_nom}/${row.nutriment_code}: reference introuvable.`,
+      );
       continue;
     }
 
-    const { error } = await supabase
-      .from("need_constraints")
-      .upsert(
-        {
-          need_id: needId,
-          nutrient_id: nutrient.id,
-          label: row.nutriment_code,
-          min_value: parseNumeric(row.valeur_min, 0),
-          max_value: parseNumeric(row.valeur_max, 9999),
-          is_enabled: true,
-        },
-        { onConflict: "need_id,nutrient_id" },
-      );
+    const { error } = await supabase.from("need_constraints").upsert(
+      {
+        need_id: needId,
+        nutrient_id: nutrient.id,
+        label: row.nutriment_code,
+        min_value: parseNumeric(row.valeur_min, 0),
+        max_value: parseNumeric(row.valeur_max, 9999),
+        is_enabled: true,
+      },
+      { onConflict: "need_id,nutrient_id" },
+    );
 
     if (error) {
-      result.errors.push(`Contrainte ${row.besoin_nom}/${row.nutriment_code}: ${error.message}`);
+      result.errors.push(
+        `Contrainte ${row.besoin_nom}/${row.nutriment_code}: ${error.message}`,
+      );
     } else {
       result.constraintsUpserted += 1;
     }
@@ -404,7 +418,9 @@ export async function importReferentialWorkbook(file) {
     const nutrient = nutrientMap.get(normalizeText(row.nutriment_code));
 
     if (!ingredientId || !nutrient) {
-      result.errors.push(`Composition ${row.ingredient_nom}/${row.nutriment_code}: reference introuvable.`);
+      result.errors.push(
+        `Composition ${row.ingredient_nom}/${row.nutriment_code}: reference introuvable.`,
+      );
       continue;
     }
 

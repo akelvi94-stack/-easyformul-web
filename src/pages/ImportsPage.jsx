@@ -58,7 +58,7 @@ export function ImportsPage() {
           <label className="upload-zone">
             <Upload size={18} />
             <span>{importing ? "Import en cours..." : "Choisir un fichier .xlsx"}</span>
-            <input type="file" accept=".xlsx,.xls" onChange={handleImport} hidden />
+            <input type="file" accept=".xlsx" onChange={handleImport} hidden />
           </label>
 
           {result ? (
